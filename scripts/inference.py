@@ -1,5 +1,6 @@
 import os
 import time
+import pprint
 from pprint import pformat
 
 import colossalai
@@ -76,6 +77,10 @@ def main():
     text_encoder = build_module(cfg.text_encoder, MODELS, device=device)
     vae = build_module(cfg.vae, MODELS).to(device, dtype).eval()
 
+    # == Initialize params to save benchmark result
+    results = {}
+    end2end_latencies = []
+
     # == prepare video size ==
     image_size = cfg.get("image_size", None)
     if image_size is None:
@@ -144,6 +149,8 @@ def main():
 
     # == Iter over all samples ==
     for i in progress_wrap(range(0, len(prompts), batch_size)):
+        begin = time.time()
+
         # == prepare batch prompts ==
         batch_prompts = prompts[i : i + batch_size]
         ms = mask_strategy[i : i + batch_size]
@@ -275,6 +282,11 @@ def main():
                 )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
+            
+
+            # == Save benchmark result for one prompt ==
+            end2end_latencies.append(time.time() - begin)
+
 
             # == save samples ==
             if is_main_process():
@@ -296,6 +308,11 @@ def main():
                         time.sleep(1)  # prevent loading previous generated video
                         add_watermark(save_path)
         start_idx += len(batch_prompts)
+    
+    results["end2end"] = sum(end2end_latencies[1:]) / len(end2end_latencies[1:])
+    
+    logger.info("Latency in each prompt: {}".format(end2end_latencies))
+    logger.info("Latency information:\n {}".format(pprint.pformat(results)))
     logger.info("Inference finished.")
     logger.info("Saved %s samples to %s", start_idx, save_dir)
 
