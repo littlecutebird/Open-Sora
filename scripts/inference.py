@@ -34,6 +34,7 @@ from opensora.utils.inference_utils import (
 )
 from opensora.utils.misc import all_exists, create_logger, is_distributed, is_main_process, to_torch_dtype
 
+from torch.profiler import ProfilerActivity, profile, record_function
 
 def main():
     torch.set_grad_enabled(False)
@@ -80,6 +81,7 @@ def main():
     # == Initialize params to save benchmark result
     results = {}
     end2end_latencies = []
+    backbone_latencies = []
 
     # == prepare video size ==
     image_size = cfg.get("image_size", None)
@@ -108,7 +110,7 @@ def main():
         .to(device, dtype)
         .eval()
     )
-    model = torch.compile(model)
+    # model = torch.compile(model)
     text_encoder.y_embedder = model.y_embedder  # HACK: for classifier-free guidance
 
     # == build scheduler ==
@@ -271,7 +273,7 @@ def main():
                 torch.manual_seed(1024)
                 z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
                 masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
-                samples = scheduler.sample(
+                samples, backbone_latency = scheduler.sample(
                     model,
                     text_encoder,
                     z=z,
@@ -280,6 +282,9 @@ def main():
                     additional_args=model_args,
                     progress=verbose >= 2,
                     mask=masks,
+                    return_latencies=True,
+                    # is_profiling= True if (i >= 2) else False,
+                    is_profiling = True
                 )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
@@ -287,7 +292,7 @@ def main():
 
             # == Save benchmark result for one prompt ==
             end2end_latencies.append(time.time() - begin)
-
+            backbone_latencies.append(backbone_latency["backbone"])
 
             # == save samples ==
             if is_main_process():
@@ -310,10 +315,13 @@ def main():
                         add_watermark(save_path)
         start_idx += len(batch_prompts)
     
-    results["end2end"] = sum(end2end_latencies[1:]) / len(end2end_latencies[1:])
-    
-    logger.info("Latency in each prompt: {}".format(end2end_latencies))
-    logger.info("Latency information:\n {}".format(pprint.pformat(results)))
+   
+
+    logger.info("E2E Latency in each prompt: {}".format(end2end_latencies))
+    logger.info("Backbone latency in each prompt: {}".format(backbone_latencies))
+    # results["end2end"] = sum(end2end_latencies[2:]) / len(end2end_latencies[2:])
+    # results["backbone"] = sum(backbone_latencies[2:]) / len(backbone_latencies[2:])
+    # logger.info("Latency information:\n {}".format(pprint.pformat(results)))
     logger.info("Inference finished.")
     logger.info("Saved %s samples to %s", start_idx, save_dir)
 

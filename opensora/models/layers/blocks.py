@@ -463,7 +463,7 @@ class MultiHeadCrossAttention(nn.Module):
         self.proj = nn.Linear(d_model, d_model)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    @torch.compiler.disable()
+    # @torch.compiler.disable()
     def forward(self, x, cond, mask=None):
         # query/value: img tokens; key: condition; mask: if padding tokens
         B, N, C = x.shape

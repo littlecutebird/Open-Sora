@@ -5,7 +5,8 @@ from opensora.registry import SCHEDULERS
 
 from .rectified_flow import RFlowScheduler, timestep_transform
 
-
+from torch.profiler import ProfilerActivity, profile, record_function
+import time
 @SCHEDULERS.register_module("rflow")
 class RFLOW:
     def __init__(
@@ -42,12 +43,17 @@ class RFLOW:
         mask=None,
         guidance_scale=None,
         progress=True,
+        return_latencies=False,
+        is_profiling=False
     ):
+        latencies = {}
+
         # if no specific guidance scale is provided, use the default scale when initializing the scheduler
         if guidance_scale is None:
             guidance_scale = self.cfg_scale
 
         n = len(prompts)
+
         # text encoding
         model_args = text_encoder.encode(prompts)
         y_null = text_encoder.null(n)
@@ -68,6 +74,23 @@ class RFLOW:
             noise_added = noise_added | (mask == 1)
 
         progress_wrap = tqdm if progress else (lambda x: x)
+
+        latencies["backbone"] = 0
+        
+        if (is_profiling):
+            prof = profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                # profile_memory=True,
+                record_shapes=True,
+                with_stack=True,
+                schedule=torch.profiler.schedule(
+                    wait=1,
+                    warmup=1,
+                    active=10000),
+                )
+            prof.start()
+
+
         for i, t in progress_wrap(enumerate(timesteps)):
             # mask for adding noise
             if mask is not None:
@@ -85,7 +108,9 @@ class RFLOW:
             # classifier-free guidance
             z_in = torch.cat([z, z], 0)
             t = torch.cat([t, t], 0)
+            start = time.time()
             pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
+            latencies["backbone"] += time.time() - start
             pred_cond, pred_uncond = pred.chunk(2, dim=0)
             v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
 
@@ -97,6 +122,18 @@ class RFLOW:
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
 
+            if (is_profiling):
+                prof.step()
+
+        if (is_profiling):
+            prof.stop()
+            with open("samples/longnn/backbone.profile", "w") as f:
+                table = prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10000)
+                f.write(str(table))
+            prof.export_chrome_trace(str("samples/longnn/backbone.json"))
+
+        if return_latencies:
+            return z, latencies
         return z
 
     def training_losses(self, model, x_start, model_kwargs=None, noise=None, mask=None, weights=None, t=None):
