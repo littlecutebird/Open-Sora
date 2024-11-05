@@ -76,57 +76,74 @@ class RFLOW:
         progress_wrap = tqdm if progress else (lambda x: x)
 
         latencies["backbone"] = 0
-        
-        if (is_profiling):
-            prof = profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                # profile_memory=True,
-                record_shapes=True,
-                with_stack=True,
-                schedule=torch.profiler.schedule(
-                    wait=1,
-                    warmup=1,
-                    active=10000),
-                )
-            prof.start()
-
-
-        for i, t in progress_wrap(enumerate(timesteps)):
-            # mask for adding noise
-            if mask is not None:
-                mask_t = mask * self.num_timesteps
-                x0 = z.clone()
-                x_noise = self.scheduler.add_noise(x0, torch.randn_like(x0), t)
-
-                mask_t_upper = mask_t >= t.unsqueeze(1)
-                model_args["x_mask"] = mask_t_upper.repeat(2, 1)
-                mask_add_noise = mask_t_upper & ~noise_added
-
-                z = torch.where(mask_add_noise[:, None, :, None, None], x_noise, x0)
-                noise_added = mask_t_upper
-
-            # classifier-free guidance
-            z_in = torch.cat([z, z], 0)
-            t = torch.cat([t, t], 0)
-            start = time.time()
-            pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
-            latencies["backbone"] += time.time() - start
-            pred_cond, pred_uncond = pred.chunk(2, dim=0)
-            v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
-
-            # update z
-            dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
-            dt = dt / self.num_timesteps
-            z = z + v_pred * dt[:, None, None, None, None]
-
-            if mask is not None:
-                z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
-
-            if (is_profiling):
-                prof.step()
 
         if (is_profiling):
-            prof.stop()
+            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, with_stack=True,) as prof:
+                for i, t in progress_wrap(enumerate(timesteps)):
+                    # mask for adding noise
+                    if mask is not None:
+                        mask_t = mask * self.num_timesteps
+                        x0 = z.clone()
+                        x_noise = self.scheduler.add_noise(x0, torch.randn_like(x0), t)
+
+                        mask_t_upper = mask_t >= t.unsqueeze(1)
+                        model_args["x_mask"] = mask_t_upper.repeat(2, 1)
+                        mask_add_noise = mask_t_upper & ~noise_added
+
+                        z = torch.where(mask_add_noise[:, None, :, None, None], x_noise, x0)
+                        noise_added = mask_t_upper
+
+                    # classifier-free guidance
+                    z_in = torch.cat([z, z], 0)
+                    t = torch.cat([t, t], 0)
+                    start = time.time()
+                    pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
+                    latencies["backbone"] += time.time() - start
+                    pred_cond, pred_uncond = pred.chunk(2, dim=0)
+                    v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+
+                    # update z
+                    dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
+                    dt = dt / self.num_timesteps
+                    z = z + v_pred * dt[:, None, None, None, None]
+
+                    if mask is not None:
+                        z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
+
+                    prof.step()
+        else:
+            for i, t in progress_wrap(enumerate(timesteps)):
+                # mask for adding noise
+                if mask is not None:
+                    mask_t = mask * self.num_timesteps
+                    x0 = z.clone()
+                    x_noise = self.scheduler.add_noise(x0, torch.randn_like(x0), t)
+
+                    mask_t_upper = mask_t >= t.unsqueeze(1)
+                    model_args["x_mask"] = mask_t_upper.repeat(2, 1)
+                    mask_add_noise = mask_t_upper & ~noise_added
+
+                    z = torch.where(mask_add_noise[:, None, :, None, None], x_noise, x0)
+                    noise_added = mask_t_upper
+
+                # classifier-free guidance
+                z_in = torch.cat([z, z], 0)
+                t = torch.cat([t, t], 0)
+                start = time.time()
+                pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
+                latencies["backbone"] += time.time() - start
+                pred_cond, pred_uncond = pred.chunk(2, dim=0)
+                v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+
+                # update z
+                dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
+                dt = dt / self.num_timesteps
+                z = z + v_pred * dt[:, None, None, None, None]
+
+                if mask is not None:
+                    z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
+
+        if (is_profiling):
             with open("samples/longnn/backbone.profile", "w") as f:
                 table = prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10000)
                 f.write(str(table))

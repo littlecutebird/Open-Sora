@@ -283,8 +283,8 @@ def main():
                     progress=verbose >= 2,
                     mask=masks,
                     return_latencies=True,
-                    # is_profiling= True if (i >= 2) else False,
-                    is_profiling = True
+                    is_profiling= True if (i >= 1) else False,
+                    # is_profiling = False
                 )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
