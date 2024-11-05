@@ -87,6 +87,12 @@ class STDiT3Block(nn.Module):
         x = rearrange(x, "B T S C -> B (T S) C")
         return x
 
+    @torch.compiler.disable()
+    def forward_layernorm(self, x):
+        # self.norm1 = self.norm2
+        return self.norm1(x)
+
+    @torch.compile()
     def forward(
         self,
         x,
@@ -109,9 +115,10 @@ class STDiT3Block(nn.Module):
             ).chunk(6, dim=1)
 
         # modulate (attention)
-        x_m = t2i_modulate(self.norm1(x), shift_msa, scale_msa)
+        layernorm = self.forward_layernorm(x)
+        x_m = t2i_modulate(layernorm, shift_msa, scale_msa)
         if x_mask is not None:
-            x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
+            x_m_zero = t2i_modulate(layernorm, shift_msa_zero, scale_msa_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
 
         # attention
@@ -137,9 +144,10 @@ class STDiT3Block(nn.Module):
         x = x + self.cross_attn(x, y, mask)
 
         # modulate (MLP)
-        x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
+        layernorm = self.forward_layernorm(x)
+        x_m = t2i_modulate(layernorm, shift_mlp, scale_mlp)
         if x_mask is not None:
-            x_m_zero = t2i_modulate(self.norm2(x), shift_mlp_zero, scale_mlp_zero)
+            x_m_zero = t2i_modulate(layernorm, shift_mlp_zero, scale_mlp_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
 
         # MLP

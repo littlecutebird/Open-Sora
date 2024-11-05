@@ -66,7 +66,6 @@ def modulate(norm_func, x, shift, scale):
     x = x.to(dtype)
     return x
 
-
 def t2i_modulate(x, shift, scale):
     return x * (1 + scale) + shift
 
@@ -166,6 +165,7 @@ class Attention(nn.Module):
         
         self.is_causal = False
 
+    @torch.compiler.disable()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
         # flash attn is not memory efficient for small sequences, this is empirical
@@ -463,7 +463,7 @@ class MultiHeadCrossAttention(nn.Module):
         self.proj = nn.Linear(d_model, d_model)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    # @torch.compiler.disable()
+    @torch.compiler.disable()
     def forward(self, x, cond, mask=None):
         # query/value: img tokens; key: condition; mask: if padding tokens
         B, N, C = x.shape
