@@ -110,7 +110,7 @@ def main():
         .to(device, dtype)
         .eval()
     )
-    # model = torch.compile(model)
+    model = torch.compile(model)
     text_encoder.y_embedder = model.y_embedder  # HACK: for classifier-free guidance
 
     # == build scheduler ==
