@@ -32,11 +32,11 @@ text_encoder = dict(
 scheduler = dict(
     type="rflow",
     use_timestep_transform=True,
-    num_sampling_steps=30,
+    num_sampling_steps=2,
     cfg_scale=7.0,
 )
 aes = 6.5
 flow = None
 
-prompt_path="./configs/opensora-v1-2/inference/sample_prompts.txt"
-# prompt=["A day in the life of a busy city street from dawn to dusk.", "A timelapse of a flower blooming in a garden.", "An animation of a spaceship traveling through a colorful galaxy."]
+# prompt_path="./configs/opensora-v1-2/inference/sample_prompts.txt"
+prompt=["A day in the life of a busy city street from dawn to dusk.", "A timelapse of a flower blooming in a garden.", "An animation of a spaceship traveling through a colorful galaxy."]
